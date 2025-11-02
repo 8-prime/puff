@@ -2,7 +2,7 @@ const std = @import("std");
 
 const magic_bytes = @embedFile("puffmagic.txt");
 
-const Puff = struct { files: std.ArrayList(*const PuffEntry) };
+const Puff = struct { files: std.ArrayList(PuffEntry) };
 const PuffEntry = struct { relativePath: []const u8, puffedLength: u64, tempStartOffset: u64 };
 
 pub fn ensureArchiveOutputExists(file_path: []const u8) !struct { dir_path: []const u8, archive_name: []const u8 } {
@@ -40,6 +40,7 @@ fn puffFile(allocator: *std.mem.Allocator, file_path: []const u8, temp_file: *st
         total_bytes += read_bytes;
         read_bytes = try file.readAll(buffer);
     }
+    try temp_file.sync();
     return PuffEntry{ .puffedLength = @intCast(total_bytes), .relativePath = file_path, .tempStartOffset = start_pos };
 }
 
@@ -60,11 +61,11 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
     });
     defer temp_file.close();
 
-    var puff_data = Puff{ .files = std.ArrayList(*const PuffEntry).init(allocator.*) };
+    var puff_data = Puff{ .files = std.ArrayList(PuffEntry).init(allocator.*) };
 
     for (paths) |path| {
         const newEntry = try puffFile(allocator, path, &temp_file);
-        try puff_data.files.append(&newEntry);
+        try puff_data.files.append(newEntry);
     }
 
     const final_file = try std.fs.cwd().createFile(output_file, .{
@@ -100,8 +101,10 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
 
     const temp_file_buffer = try allocator.alloc(u8, 1024);
     defer allocator.free(temp_file_buffer);
+    try temp_file.seekTo(0);
     var read = try temp_file.readAll(temp_file_buffer);
     while (read > 0) {
+        std.debug.print("Reading from temp file into main archive", .{});
         try final_file.writeAll(temp_file_buffer[0..read]);
         read = try temp_file.readAll(temp_file_buffer);
     }
