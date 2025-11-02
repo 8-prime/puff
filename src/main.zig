@@ -7,7 +7,7 @@ const puff = @import("puff.zig");
 const ArgParseMode = enum { default, input, output };
 
 pub fn main() !void {
-    const alloc = std.heap.page_allocator;
+    var alloc = std.heap.page_allocator;
 
     const outw = std.io.getStdOut().writer();
 
@@ -54,8 +54,10 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    if (outFile == null) {
+    const sure_out_file = outFile orelse {
         try outw.print("Must specify output file with -o (--output)\n", .{});
         std.process.exit(1);
-    }
+    };
+
+    try puff.puff(&alloc, strings[0..total_files], sure_out_file);
 }
