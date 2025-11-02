@@ -49,10 +49,11 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
     }
 
     const path_info = try ensureArchiveOutputExists(output_file);
-    var temp_file_paths = [2][]const u8{ path_info.archive_name, "temp.pff" };
+    var temp_file_paths = [2][]const u8{ path_info.dir_path, "temp.pff" };
     const temp_file_path = try std.fs.path.join(allocator.*, &temp_file_paths);
     defer allocator.free(temp_file_path);
 
+    std.debug.print("Creating temp file {s}", .{temp_file_path});
     var temp_file = try std.fs.cwd().createFile(temp_file_path, .{
         .truncate = true,
         .read = true,
@@ -89,7 +90,7 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
 
     var current_toc_pointer: usize = 0;
     for (puff_data.files.items) |pd| {
-        @memcpy(toc_buffer[current_toc_pointer..pd.relativePath.len], pd.relativePath);
+        @memcpy(toc_buffer[current_toc_pointer .. current_toc_pointer + pd.relativePath.len], pd.relativePath);
         current_toc_pointer += @intCast(pd.relativePath.len);
         try write_to_toc(toc_buffer, pd.tempStartOffset + offset_after_header, &current_toc_pointer);
         try write_to_toc(toc_buffer, pd.puffedLength + offset_after_header, &current_toc_pointer);
@@ -98,6 +99,7 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
     _ = try final_file.write(toc_buffer);
 
     const temp_file_buffer = try allocator.alloc(u8, 1024);
+    defer allocator.free(temp_file_buffer);
     var read = try temp_file.readAll(temp_file_buffer);
     while (read > 0) {
         try final_file.writeAll(temp_file_buffer[0..read]);
