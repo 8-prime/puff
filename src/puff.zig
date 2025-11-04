@@ -1,4 +1,5 @@
 const std = @import("std");
+const com = @import("compressor.zig");
 
 const magic_bytes = @embedFile("puffmagic.txt");
 
@@ -25,9 +26,8 @@ fn write_to_toc(toc_buffer: []u8, value: u64, buffer_offset: *usize) !void {
     buffer_offset.* += @sizeOf(@TypeOf(value));
 }
 
-fn puffFile(allocator: *std.mem.Allocator, file_path: []const u8, temp_file: *std.fs.File) !PuffEntry {
+fn puffFile(allocator: *std.mem.Allocator, file_path: []const u8, temp_file: *std.fs.File, compressor: com.Compressor) !PuffEntry {
     const file = try std.fs.cwd().openFile(file_path, .{});
-
     var buffer = try allocator.alloc(u8, 1024);
     defer allocator.free(buffer);
     try temp_file.seekFromEnd(0);
@@ -41,10 +41,13 @@ fn puffFile(allocator: *std.mem.Allocator, file_path: []const u8, temp_file: *st
         read_bytes = try file.readAll(buffer);
     }
     try temp_file.sync();
+    const reader = file.reader();
+    const writer = temp_file.writer();
+    try compressor.compress(reader.any(), writer.any());
     return PuffEntry{ .puffedLength = @intCast(total_bytes), .relativePath = file_path, .tempStartOffset = start_pos };
 }
 
-pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []const u8) !void {
+pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []const u8, compressor: com.Compressor) !void {
     for (paths) |path| {
         try std.fs.cwd().access(path, .{});
     }
@@ -64,7 +67,7 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
     var puff_data = Puff{ .files = std.ArrayList(PuffEntry).init(allocator.*) };
 
     for (paths) |path| {
-        const newEntry = try puffFile(allocator, path, &temp_file);
+        const newEntry = try puffFile(allocator, path, &temp_file, compressor);
         try puff_data.files.append(newEntry);
     }
 

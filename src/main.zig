@@ -1,4 +1,5 @@
 const std = @import("std");
+const empty = @import("algorithms/empty.zig");
 /// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
 const lib = @import("puff_lib");
 // const txt = @embedFile("puffmagic.txt");
@@ -58,6 +59,6 @@ pub fn main() !void {
         try outw.print("Must specify output file with -o (--output)\n", .{});
         std.process.exit(1);
     };
-
-    try puff.puff(&alloc, strings[0..total_files], sure_out_file);
+    var empty_compressor = empty.EmptyCompressor{};
+    try puff.puff(&alloc, strings[0..total_files], sure_out_file, empty_compressor.compressor());
 }
