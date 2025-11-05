@@ -1,10 +1,8 @@
 const std = @import("std");
-const com = @import("compressor.zig");
+const com = @import("compression/compressor.zig");
+const archive = @import("types/archive.zig");
 
 const magic_bytes = @embedFile("puffmagic.txt");
-
-const Puff = struct { files: std.ArrayList(PuffEntry) };
-const PuffEntry = struct { relativePath: []const u8, puffedLength: u64, tempStartOffset: u64 };
 
 pub fn ensureArchiveOutputExists(file_path: []const u8) !struct { dir_path: []const u8, archive_name: []const u8 } {
     const dir_path = std.fs.path.dirname(file_path) orelse return error.InvalidPath;
@@ -26,25 +24,13 @@ fn write_to_toc(toc_buffer: []u8, value: u64, buffer_offset: *usize) !void {
     buffer_offset.* += @sizeOf(@TypeOf(value));
 }
 
-fn puffFile(allocator: *std.mem.Allocator, file_path: []const u8, temp_file: *std.fs.File, compressor: com.Compressor) !PuffEntry {
+fn puffFile(allocator: *std.mem.Allocator, file_path: []const u8, temp_file: *std.fs.File, compressor: com.Compressor) !archive.PuffEntry {
     const file = try std.fs.cwd().openFile(file_path, .{});
-    var buffer = try allocator.alloc(u8, 1024);
-    defer allocator.free(buffer);
+    try file.seekTo(0);
     try temp_file.seekFromEnd(0);
     const start_pos = try temp_file.getPos();
-    var total_bytes: usize = 0;
-    try file.seekTo(0);
-    var read_bytes = try file.readAll(buffer);
-    while (read_bytes > 0) {
-        try temp_file.writeAll(buffer[0..read_bytes]);
-        total_bytes += read_bytes;
-        read_bytes = try file.readAll(buffer);
-    }
-    try temp_file.sync();
-    const reader = file.reader();
-    const writer = temp_file.writer();
-    try compressor.compress(reader.any(), writer.any());
-    return PuffEntry{ .puffedLength = @intCast(total_bytes), .relativePath = file_path, .tempStartOffset = start_pos };
+    const total_bytes = try compressor.compress(file.reader().any(), temp_file.writer().any(), allocator.*);
+    return archive.PuffEntry{ .puffedLength = @intCast(total_bytes), .relativePath = file_path, .tempStartOffset = start_pos };
 }
 
 pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []const u8, compressor: com.Compressor) !void {
@@ -64,7 +50,7 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
     });
     defer temp_file.close();
 
-    var puff_data = Puff{ .files = std.ArrayList(PuffEntry).init(allocator.*) };
+    var puff_data = archive.Puff{ .files = std.ArrayList(archive.PuffEntry).init(allocator.*) };
 
     for (paths) |path| {
         const newEntry = try puffFile(allocator, path, &temp_file, compressor);
