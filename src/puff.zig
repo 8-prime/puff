@@ -16,7 +16,7 @@ pub fn ensureArchiveOutputExists(file_path: []const u8) !struct { dir_path: []co
     };
 }
 
-fn write_to_toc(toc_buffer: []u8, value: u64, buffer_offset: *usize) !void {
+fn write_to_toc(comptime T: type, toc_buffer: []u8, value: T, buffer_offset: *usize) !void {
     const offset = buffer_offset.*;
     var slice = toc_buffer[offset .. offset + @sizeOf(@TypeOf(value))];
     std.mem.writeInt(@TypeOf(value), slice[0..@sizeOf(@TypeOf(value))], value, .little);
@@ -67,26 +67,36 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
     try final_file.writeAll(magic_bytes);
 
     //Write table of contents
-    var total_toc_length: usize = 0;
+    var archive_info_length: usize = 0;
+
+    //info bytes for archive info length
+    archive_info_length += @sizeOf(i64);
+    //info bytes for archive type
+    archive_info_length += @sizeOf(i64);
+
     for (puff_data.files.items) |pd| {
-        total_toc_length += pd.relativePath.len;
-        total_toc_length += @sizeOf(i64) * 2; //Size of offset and length in bytes
+        archive_info_length += pd.relativePath.len;
+        archive_info_length += @sizeOf(i64) * 2; //Size of offset and length in bytes
     }
 
-    const toc_buffer = try allocator.alloc(u8, total_toc_length);
-    defer allocator.free(toc_buffer);
+    const archive_info_buffer = try allocator.alloc(u8, archive_info_length);
+    defer allocator.free(archive_info_buffer);
 
-    const offset_after_header = try final_file.getPos() + total_toc_length;
+    const offset_after_header = try final_file.getPos() + archive_info_length;
 
     var current_toc_pointer: usize = 0;
+
+    try write_to_toc(i64, archive_info_buffer, archive_info_length, &current_toc_pointer);
+    try write_to_toc(i64, archive_info_buffer, compressor.archiveType, &current_toc_pointer);
+
     for (puff_data.files.items) |pd| {
-        @memcpy(toc_buffer[current_toc_pointer .. current_toc_pointer + pd.relativePath.len], pd.relativePath);
+        @memcpy(archive_info_buffer[current_toc_pointer .. current_toc_pointer + pd.relativePath.len], pd.relativePath);
         current_toc_pointer += @intCast(pd.relativePath.len);
-        try write_to_toc(toc_buffer, pd.tempStartOffset + offset_after_header, &current_toc_pointer);
-        try write_to_toc(toc_buffer, pd.puffedLength + offset_after_header, &current_toc_pointer);
+        try write_to_toc(u64, archive_info_buffer, pd.tempStartOffset + offset_after_header, &current_toc_pointer);
+        try write_to_toc(u64, archive_info_buffer, pd.puffedLength + offset_after_header, &current_toc_pointer);
     }
 
-    _ = try final_file.write(toc_buffer);
+    _ = try final_file.write(archive_info_buffer);
 
     const temp_file_buffer = try allocator.alloc(u8, 1024);
     defer allocator.free(temp_file_buffer);

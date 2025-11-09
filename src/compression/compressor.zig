@@ -3,6 +3,7 @@ const std = @import("std");
 pub const Compressor = struct {
     ptr: *anyopaque,
     compressFn: *const fn (ptr: *anyopaque, reader: std.io.AnyReader, writer: std.io.AnyWriter, allocator: std.mem.Allocator) anyerror!usize,
+    archiveType: i64,
 
     pub fn compress(self: Compressor, reader: std.io.AnyReader, writer: std.io.AnyWriter, allocator: std.mem.Allocator) !usize {
         return self.compressFn(self.ptr, reader, writer, allocator);

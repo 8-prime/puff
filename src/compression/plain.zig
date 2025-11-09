@@ -17,6 +17,6 @@ pub const PlainCompressor = struct {
     }
 
     pub fn compressor(self: *PlainCompressor) com.Compressor {
-        return .{ .ptr = self, .compressFn = compressFn };
+        return .{ .ptr = self, .compressFn = compressFn, .archiveType = @intFromEnum(archive.ArchiveType.plain) };
     }
 };
