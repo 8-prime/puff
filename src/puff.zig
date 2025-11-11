@@ -1,6 +1,7 @@
 const std = @import("std");
 const com = @import("compression/compressor.zig");
 const archive = @import("types/archive.zig");
+const plain = @import("compression/plain.zig");
 
 const magic_bytes = @embedFile("puffmagic.txt");
 
@@ -83,7 +84,7 @@ pub fn puff(allocator: std.mem.Allocator, paths: [][]const u8, output_file: []co
     const archive_info_buffer = try allocator.alloc(u8, archive_info_length);
     defer allocator.free(archive_info_buffer);
 
-    const offset_after_header = try final_file.getPos() + archive_info_length;
+    const offset_after_header: u64 = try final_file.getPos() + archive_info_length;
 
     var current_toc_pointer: usize = 0;
 
@@ -116,18 +117,38 @@ pub fn puff(allocator: std.mem.Allocator, paths: [][]const u8, output_file: []co
 
 pub fn unPuff(allocator: std.mem.Allocator, archive_path: []const u8, output_path: []const u8) !void {
     _ = output_path;
-    _ = archive_path;
-    _ = allocator;
 
     //check if archive path exists
+    try std.fs.cwd().access(archive_path, .{});
     //open archive file
-
+    const file = try std.fs.cwd().openFile(archive_path, .{});
+    try file.seekTo(0);
     //check for header
+    const magic_bytes_buffer = try allocator.alloc(u8, magic_bytes.len);
+    const read_bytes = try file.readAll(magic_bytes_buffer);
+    if (read_bytes < magic_bytes.len) {
+        return archive.UnPuffError.InvalidArchiveHeader;
+    }
+    allocator.free(magic_bytes_buffer);
 
+    const intBuffer = try allocator.alloc(u8, @sizeOf(i64));
+    defer allocator.free(intBuffer);
     //read header size
+    try file.readAll(intBuffer);
+    const header_size = std.mem.readInt(i64, intBuffer, .little);
     //read archive type
-
+    try file.readAll(intBuffer);
+    const archive_type: archive.ArchiveType = @enumFromInt(std.mem.readInt(i64, intBuffer, .little));
     //create decompressor based on archive type
+
+    const header_bytes = try allocator.alloc(u8, header_size);
+
+    const decompressor = switch (archive_type) {
+        .plain => plain.PlainDecompressor.init().decompressor(),
+    };
+
+    _ = header_bytes;
+    _ = decompressor;
 
     //for each entry
     //read length of relative file path

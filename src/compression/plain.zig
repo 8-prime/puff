@@ -20,3 +20,30 @@ pub const PlainCompressor = struct {
         return .{ .ptr = self, .compressFn = compressFn, .archiveType = @intFromEnum(archive.ArchiveType.plain) };
     }
 };
+
+pub const PlainDecompressor = struct {
+    fn decompressFn(_: *anyopaque, reader: std.io.AnyReader, start: u64, end: u64, writer: std.io.AnyWriter, allocator: std.mem.Allocator) !void {
+        const total_size = end - start;
+        const bufferSize: u64 = if (total_size < 1024) total_size else 1024;
+
+        var buffer = try allocator.alloc(u8, bufferSize);
+        defer allocator.free(buffer);
+
+        var total_bytes: usize = 0;
+        var read_bytes = try reader.readAll(buffer);
+        while (read_bytes > 0) {
+            try writer.writeAll(buffer[0..read_bytes]);
+            total_bytes += read_bytes;
+            const remainder = total_size - total_bytes;
+            read_bytes = try reader.readAll(buffer[0..remainder]);
+        }
+    }
+
+    pub fn init() PlainDecompressor {
+        return PlainDecompressor{};
+    }
+
+    pub fn decompressor(self: *PlainDecompressor) com.Decompressor {
+        return .{ .ptr = self, .decompressFn = decompressFn, .archiveType = @intFromEnum(archive.ArchiveType.plain) };
+    }
+};
