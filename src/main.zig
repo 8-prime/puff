@@ -5,7 +5,7 @@ const puff = @import("puff.zig");
 
 const ArgParseMode = enum { default, input, output };
 
-fn runPuff(args: [][]u8, alloc: std.mem.Allocator, output: std.io.AnyWriter) !void {
+fn runPuff(args: [][:0]u8, alloc: std.mem.Allocator, output: std.io.AnyWriter) !void {
     if (args.len < 3) {
         try output.print("Must specify at least one input file with -i (--input)\n", .{});
         std.process.exit(1);
@@ -37,7 +37,7 @@ fn runPuff(args: [][]u8, alloc: std.mem.Allocator, output: std.io.AnyWriter) !vo
         }
 
         if (mode == .input) {
-            files.append(arg);
+            try files.append(arg);
             total_files += 1;
             continue;
         }
@@ -57,7 +57,7 @@ fn runPuff(args: [][]u8, alloc: std.mem.Allocator, output: std.io.AnyWriter) !vo
         std.process.exit(1);
     };
     var empty_compressor = plain.PlainCompressor{};
-    try puff.puff(&alloc, files.items, sure_out_file, empty_compressor.compressor());
+    try puff.puff(alloc, files.items, sure_out_file, empty_compressor.compressor());
 }
 
 fn runUnPuff() !void {}
@@ -75,8 +75,8 @@ pub fn main() !void {
     }
 
     if (std.mem.eql(u8, args[1], "puff")) {
-        runPuff(args, alloc, outw.any());
+        try runPuff(args, alloc, outw.any());
     } else if (std.mem.eql(u8, args[1], "unpuff")) {
-        runUnPuff();
+        try runUnPuff();
     }
 }

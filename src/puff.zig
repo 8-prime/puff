@@ -24,23 +24,23 @@ fn write_to_toc(comptime T: type, toc_buffer: []u8, value: T, buffer_offset: *us
     buffer_offset.* += @sizeOf(@TypeOf(value));
 }
 
-fn puffFile(allocator: *std.mem.Allocator, file_path: []const u8, temp_file: *std.fs.File, compressor: com.Compressor) !archive.PuffEntry {
+fn puffFile(allocator: std.mem.Allocator, file_path: []const u8, temp_file: *std.fs.File, compressor: com.Compressor) !archive.PuffEntry {
     const file = try std.fs.cwd().openFile(file_path, .{});
     try file.seekTo(0);
     try temp_file.seekFromEnd(0);
     const start_pos = try temp_file.getPos();
-    const total_bytes = try compressor.compress(file.reader().any(), temp_file.writer().any(), allocator.*);
+    const total_bytes = try compressor.compress(file.reader().any(), temp_file.writer().any(), allocator);
     return archive.PuffEntry{ .puffedLength = @intCast(total_bytes), .relativePath = file_path, .tempStartOffset = start_pos };
 }
 
-pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []const u8, compressor: com.Compressor) !void {
+pub fn puff(allocator: std.mem.Allocator, paths: [][]const u8, output_file: []const u8, compressor: com.Compressor) !void {
     for (paths) |path| {
         try std.fs.cwd().access(path, .{});
     }
 
     const path_info = try ensureArchiveOutputExists(output_file);
     var temp_file_paths = [2][]const u8{ path_info.dir_path, "temp.pff" };
-    const temp_file_path = try std.fs.path.join(allocator.*, &temp_file_paths);
+    const temp_file_path = try std.fs.path.join(allocator, &temp_file_paths);
     defer allocator.free(temp_file_path);
 
     std.debug.print("Creating temp file {s}", .{temp_file_path});
@@ -50,7 +50,7 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
     });
     defer temp_file.close();
 
-    var puff_data = archive.Puff{ .files = std.ArrayList(archive.PuffEntry).init(allocator.*) };
+    var puff_data = archive.Puff{ .files = std.ArrayList(archive.PuffEntry).init(allocator), .type = compressor.archiveType };
 
     for (paths) |path| {
         const newEntry = try puffFile(allocator, path, &temp_file, compressor);
@@ -76,7 +76,8 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
 
     for (puff_data.files.items) |pd| {
         archive_info_length += pd.relativePath.len;
-        archive_info_length += @sizeOf(i64) * 2; //Size of offset and length in bytes
+        archive_info_length += @sizeOf(i64) * 2; //Size of offset and length of compressed file in bytes
+        archive_info_length += @sizeOf(i64); //Size of relative path in bytes
     }
 
     const archive_info_buffer = try allocator.alloc(u8, archive_info_length);
@@ -86,10 +87,11 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
 
     var current_toc_pointer: usize = 0;
 
-    try write_to_toc(i64, archive_info_buffer, archive_info_length, &current_toc_pointer);
+    try write_to_toc(i64, archive_info_buffer, @intCast(archive_info_length), &current_toc_pointer);
     try write_to_toc(i64, archive_info_buffer, compressor.archiveType, &current_toc_pointer);
 
     for (puff_data.files.items) |pd| {
+        try write_to_toc(i64, archive_info_buffer, @intCast(pd.relativePath.len), &current_toc_pointer);
         @memcpy(archive_info_buffer[current_toc_pointer .. current_toc_pointer + pd.relativePath.len], pd.relativePath);
         current_toc_pointer += @intCast(pd.relativePath.len);
         try write_to_toc(u64, archive_info_buffer, pd.tempStartOffset + offset_after_header, &current_toc_pointer);
@@ -110,4 +112,31 @@ pub fn puff(allocator: *std.mem.Allocator, paths: [][]const u8, output_file: []c
 
     //delete temp file after
     try std.fs.cwd().deleteFile(temp_file_path);
+}
+
+pub fn unPuff(allocator: std.mem.Allocator, archive_path: []const u8, output_path: []const u8) !void {
+    _ = output_path;
+    _ = archive_path;
+    _ = allocator;
+
+    //check if archive path exists
+    //open archive file
+
+    //check for header
+
+    //read header size
+    //read archive type
+
+    //create decompressor based on archive type
+
+    //for each entry
+    //read length of relative file path
+    //read relative file path based on length
+    //read start offset of file
+    //read length of file
+
+    //open file for output_path + relative path
+
+    //pass reader and lengths to decompressor as well as writer for file
+
 }
