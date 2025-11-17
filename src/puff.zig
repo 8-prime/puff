@@ -76,9 +76,9 @@ pub fn puff(allocator: std.mem.Allocator, paths: [][]const u8, output_file: []co
     archive_info_length += @sizeOf(i64);
 
     for (puff_data.files.items) |pd| {
+        archive_info_length += @sizeOf(i64); //Size of relative path in bytes
         archive_info_length += pd.relativePath.len;
         archive_info_length += @sizeOf(i64) * 2; //Size of offset and length of compressed file in bytes
-        archive_info_length += @sizeOf(i64); //Size of relative path in bytes
     }
 
     const archive_info_buffer = try allocator.alloc(u8, archive_info_length);
@@ -116,8 +116,6 @@ pub fn puff(allocator: std.mem.Allocator, paths: [][]const u8, output_file: []co
 }
 
 pub fn unPuff(allocator: std.mem.Allocator, archive_path: []const u8, output_path: []const u8) !void {
-    _ = output_path;
-
     //check if archive path exists
     try std.fs.cwd().access(archive_path, .{});
     //open archive file
@@ -148,7 +146,26 @@ pub fn unPuff(allocator: std.mem.Allocator, archive_path: []const u8, output_pat
     };
 
     _ = header_bytes;
-    _ = decompressor;
+
+    var read_toc_bytes: i64 = 0;
+
+    try std.fs.cwd().makePath(output_path);
+    while (read_toc_bytes < header_size) {
+        const relative_path_length = std.mem.readInt(i64, intBuffer, .little);
+        const relative_path = try allocator.alloc(u8, relative_path_length);
+        const start_offset = std.mem.readInt(i64, intBuffer, .little);
+        const length = std.mem.readInt(i64, intBuffer, .little);
+        const full_path = try std.fs.path.join(allocator, &.{ output_path, relative_path });
+        defer allocator.free(full_path);
+
+        // Create the file
+        const out_file = try std.fs.cwd().createFile(full_path, .{});
+        defer out_file.close();
+        //create reader from file and seek to
+        try decompressor.decompress(file.reader().any(), start_offset, start_offset + length, out_file.writer().any(), allocator);
+        read_toc_bytes += intBuffer.len * 3;
+        read_toc_bytes += relative_path_length;
+    }
 
     //for each entry
     //read length of relative file path
