@@ -162,6 +162,7 @@ pub fn unPuff(allocator: std.mem.Allocator, archive_path: []const u8, output_pat
         const out_file = try std.fs.cwd().createFile(full_path, .{});
         defer out_file.close();
         //create reader from file and seek to
+        file.seekTo(start_offset);
         try decompressor.decompress(file.reader().any(), start_offset, start_offset + length, out_file.writer().any(), allocator);
         read_toc_bytes += intBuffer.len * 3;
         read_toc_bytes += relative_path_length;
