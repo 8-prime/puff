@@ -151,10 +151,17 @@ pub fn unPuff(allocator: std.mem.Allocator, archive_path: []const u8, output_pat
 
     try std.fs.cwd().makePath(output_path);
     while (read_toc_bytes < header_size) {
+        try file.readAll(intBuffer);
         const relative_path_length = std.mem.readInt(i64, intBuffer, .little);
+
         const relative_path = try allocator.alloc(u8, relative_path_length);
+
+        try file.readAll(intBuffer);
         const start_offset = std.mem.readInt(i64, intBuffer, .little);
+
+        try file.readAll(intBuffer);
         const length = std.mem.readInt(i64, intBuffer, .little);
+
         const full_path = try std.fs.path.join(allocator, &.{ output_path, relative_path });
         defer allocator.free(full_path);
 
@@ -167,15 +174,4 @@ pub fn unPuff(allocator: std.mem.Allocator, archive_path: []const u8, output_pat
         read_toc_bytes += intBuffer.len * 3;
         read_toc_bytes += relative_path_length;
     }
-
-    //for each entry
-    //read length of relative file path
-    //read relative file path based on length
-    //read start offset of file
-    //read length of file
-
-    //open file for output_path + relative path
-
-    //pass reader and lengths to decompressor as well as writer for file
-
 }
