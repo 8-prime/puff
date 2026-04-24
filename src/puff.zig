@@ -129,20 +129,22 @@ pub fn unPuff(allocator: std.mem.Allocator, archive_path: []const u8, output_pat
     }
     allocator.free(magic_bytes_buffer);
 
-    const intBuffer = try allocator.alloc(u8, @sizeOf(i64));
-    defer allocator.free(intBuffer);
+    // const intBuffer = try allocator.alloc(u8, @sizeOf(i64));
+    // defer allocator.free(intBuffer);
     //read header size
-    try file.readAll(intBuffer);
-    const header_size = std.mem.readInt(i64, intBuffer, .little);
+    // _ = try file.readAll(intBuffer);
+    const header_size = try file.reader().readInt(i64, .little);
+    if (header_size < 0) return archive.UnPuffError.InvalidArchiveHeader;
+    if (header_size > std.math.maxInt(usize)) return archive.UnPuffError.InvalidArchiveHeader;
+
     //read archive type
-    try file.readAll(intBuffer);
-    const archive_type: archive.ArchiveType = @enumFromInt(std.mem.readInt(i64, intBuffer, .little));
+    const archive_type: archive.ArchiveType = @enumFromInt(try file.reader().readInt(i64, .little));
     //create decompressor based on archive type
 
-    const header_bytes = try allocator.alloc(u8, header_size);
-
+    const header_bytes = try allocator.alloc(u8, @intCast(header_size));
+    var plain_decompressor = plain.PlainDecompressor.init();
     const decompressor = switch (archive_type) {
-        .plain => plain.PlainDecompressor.init().decompressor(),
+        .plain => plain_decompressor.decompressor(),
     };
 
     _ = header_bytes;
@@ -151,16 +153,13 @@ pub fn unPuff(allocator: std.mem.Allocator, archive_path: []const u8, output_pat
 
     try std.fs.cwd().makePath(output_path);
     while (read_toc_bytes < header_size) {
-        try file.readAll(intBuffer);
-        const relative_path_length = std.mem.readInt(i64, intBuffer, .little);
+        const relative_path_length = try file.reader().readInt(i64, .little);
+        if (relative_path_length < 0) return archive.UnPuffError.InvalidArchiveHeader;
+        if (relative_path_length > std.math.maxInt(usize)) return archive.UnPuffError.InvalidArchiveHeader;
+        const relative_path = try allocator.alloc(u8, @intCast(relative_path_length));
 
-        const relative_path = try allocator.alloc(u8, relative_path_length);
-
-        try file.readAll(intBuffer);
-        const start_offset = std.mem.readInt(i64, intBuffer, .little);
-
-        try file.readAll(intBuffer);
-        const length = std.mem.readInt(i64, intBuffer, .little);
+        const start_offset = try file.reader().readInt(i64, .little);
+        const length = try file.reader().readInt(i64, .little);
 
         const full_path = try std.fs.path.join(allocator, &.{ output_path, relative_path });
         defer allocator.free(full_path);
@@ -171,7 +170,7 @@ pub fn unPuff(allocator: std.mem.Allocator, archive_path: []const u8, output_pat
         //create reader from file and seek to
         file.seekTo(start_offset);
         try decompressor.decompress(file.reader().any(), start_offset, start_offset + length, out_file.writer().any(), allocator);
-        read_toc_bytes += intBuffer.len * 3;
+        read_toc_bytes += @sizeOf(i64) * 3;
         read_toc_bytes += relative_path_length;
     }
 }

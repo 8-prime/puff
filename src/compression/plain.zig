@@ -44,6 +44,6 @@ pub const PlainDecompressor = struct {
     }
 
     pub fn decompressor(self: *PlainDecompressor) com.Decompressor {
-        return .{ .ptr = self, .decompressFn = decompressFn, .archiveType = @intFromEnum(archive.ArchiveType.plain) };
+        return .{ .ptr = self, .decompressFn = decompressFn };
     }
 };
