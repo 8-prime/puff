@@ -1,3 +1,8 @@
 .zig-cache/
 zig-out/
 *.o
+
+
+# Added by cargo
+
+/target

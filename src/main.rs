@@ -1,0 +1,53 @@
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+
+mod archive;
+mod interface;
+
+#[derive(Parser)]
+#[command(version, about = "A custom archive tool")]
+struct Args {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Pack a directory or file into a .puff archive
+    Pack {
+        /// Path to pack
+        path: PathBuf,
+        /// Output directory (defaults to current directory)
+        output_dir: Option<PathBuf>,
+    },
+    /// List the contents of a .puff archive
+    Ls {
+        /// Path to the .puff archive
+        path: PathBuf,
+    },
+    /// Unpack a .puff archive
+    Unpack {
+        /// Path to the .puff archive
+        path: PathBuf,
+        /// Output directory (defaults to current directory)
+        output_dir: Option<PathBuf>,
+    },
+}
+
+fn main() {
+    interface::test();
+    // let args = Args::parse();
+
+    // match args.command {
+    //     Command::Pack { path, output_dir } => {
+    //         println!("Packing {:?} -> {:?}", path, output_dir);
+    //     }
+    //     Command::Ls { path } => {
+    //         println!("Listing {:?}", path);
+    //     }
+    //     Command::Unpack { path, output_dir } => {
+    //         println!("Unpacking {:?} -> {:?}", path, output_dir);
+    //     }
+    // }
+}
