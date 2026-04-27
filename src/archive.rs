@@ -1,9 +1,11 @@
 use std::{
-    io::{Read, Write},
+    fs::File,
+    io::{Read, Seek, SeekFrom, Write},
     path::PathBuf,
 };
 
 use thiserror::Error;
+use walkdir::WalkDir;
 
 #[derive(Debug, Error)]
 pub enum ArchiveError {
@@ -13,6 +15,8 @@ pub enum ArchiveError {
     OutputNotFound(PathBuf),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error("Failed to compute relative path for: {0}")]
+    StripPrefix(PathBuf),
 }
 
 struct PuffImpl {}
@@ -66,6 +70,20 @@ pub struct ArchiveInfo {
     pub entries: Vec<ArchiveEntry>,
 }
 
+impl ArchiveInfo {
+    pub fn serialized_size(&self) -> usize {
+        let archive_type_len = size_of::<ArchiveType>();
+        let entries_count_len = size_of::<u64>();
+        archive_type_len
+            + entries_count_len
+            + self
+                .entries
+                .iter()
+                .map(|e| e.serialized_size())
+                .sum::<usize>()
+    }
+}
+
 pub enum ArchiveEntryType {
     File,
     Directory,
@@ -73,10 +91,21 @@ pub enum ArchiveEntryType {
 
 pub struct ArchiveEntry {
     pub relative_path: String,
-    pub temp_file_start: u64,
-    pub temp_file_size: u64,
+    pub archive_start: u64,
+    pub archive_size: u64,
     pub original_size: u64,
     pub entry_type: ArchiveEntryType,
+}
+
+impl ArchiveEntry {
+    pub fn serialized_size(&self) -> usize {
+        let path_len = size_of::<u64>();
+        let entry_type_len = size_of::<ArchiveEntryType>();
+        let offsets_len = size_of::<u64>();
+
+        // archive start + archive size + original_size
+        path_len + self.relative_path.len() + entry_type_len + offsets_len * 3
+    }
 }
 
 fn resolve_output_base(input: &PathBuf, output: Option<PathBuf>) -> PathBuf {
@@ -111,7 +140,7 @@ fn normalize_output_path(base: PathBuf, input: &PathBuf) -> Result<PathBuf, Arch
     }
 }
 
-fn get_temp_output_path(output: PathBuf) -> PathBuf {
+fn get_temp_output_path(output: &PathBuf) -> PathBuf {
     let mut temp_out = output.clone();
     temp_out.push(".temp");
     temp_out
@@ -126,13 +155,66 @@ pub fn pack(
         return Err(ArchiveError::InputNotFound(input));
     }
 
-    let base = resolve_output_base(&input, output);
-    let output = normalize_output_path(base, &input)?;
+    let abs_input = std::fs::canonicalize(input)?;
+
+    let base = resolve_output_base(&abs_input, output);
+    let output = normalize_output_path(base, &abs_input)?;
+    // let temp_out = get_temp_output_path(&output);
+
+    // let mut temp_file = File::create(temp_out)?;
 
     let mut archive_info = ArchiveInfo {
-        archive_type: archive_type,
-        entries: Vec::new(),
+        archive_type: archive_type.clone(),
+        entries: WalkDir::new(&abs_input)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .map(|e| -> Result<ArchiveEntry, ArchiveError> {
+                let relative_path = e
+                    .path()
+                    .strip_prefix(&abs_input)
+                    .map_err(|_| ArchiveError::StripPrefix(e.path().to_path_buf()))?
+                    .to_string_lossy()
+                    .to_string();
+                if e.file_type().is_dir() {
+                    return Ok(ArchiveEntry {
+                        entry_type: ArchiveEntryType::Directory,
+                        original_size: 0,
+                        relative_path: relative_path,
+                        archive_size: 0,
+                        archive_start: 0,
+                    });
+                }
+
+                return Ok(ArchiveEntry {
+                    archive_size: 0,
+                    archive_start: 0,
+                    entry_type: ArchiveEntryType::File,
+                    original_size: 0,
+                    relative_path: relative_path,
+                });
+            })
+            .collect::<Result<Vec<ArchiveEntry>, ArchiveError>>()?,
     };
 
-    todo!()
+    let mut archive_file = File::create(output)?;
+    let header_length = archive_info.serialized_size();
+
+    archive_file.seek(SeekFrom::Start(header_length as u64))?;
+
+    for entry in archive_info.entries.iter_mut() {
+        if matches!(entry.entry_type, ArchiveEntryType::Directory) {
+            continue;
+        }
+        let full_path = abs_input.join(entry.relative_path.clone());
+        let mut file = File::open(&full_path)?;
+        let pre_pack_position = archive_file.stream_position()?;
+        archive_type.pack(&mut file, &mut archive_file)?;
+        let post_pack_position = archive_file.stream_position()?;
+
+        entry.archive_start = pre_pack_position;
+        entry.archive_size = post_pack_position - pre_pack_position;
+        entry.original_size = file.stream_position()?;
+    }
+
+    todo!();
 }
