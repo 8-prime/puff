@@ -4,7 +4,6 @@ use clap::{Parser, Subcommand};
 
 mod archive;
 mod interface;
-
 #[derive(Parser)]
 #[command(version, about = "A custom archive tool")]
 struct Args {
@@ -20,6 +19,9 @@ enum Command {
         path: PathBuf,
         /// Output directory (defaults to current directory)
         output_dir: Option<PathBuf>,
+        /// Archive type (defaults to puff)
+        #[arg(long, default_value_t, value_enum)]
+        archive_type: archive::ArchiveType,
     },
     /// List the contents of a .puff archive
     Ls {
