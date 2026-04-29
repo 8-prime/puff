@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use crate::archive::ArchiveError;
+
 mod archive;
 mod interface;
 #[derive(Parser)]
@@ -37,19 +39,24 @@ enum Command {
     },
 }
 
-fn main() {
-    interface::test();
-    // let args = Args::parse();
+fn main() -> Result<(), ArchiveError> {
+    let args = Args::parse();
 
-    // match args.command {
-    //     Command::Pack { path, output_dir } => {
-    //         println!("Packing {:?} -> {:?}", path, output_dir);
-    //     }
-    //     Command::Ls { path } => {
-    //         println!("Listing {:?}", path);
-    //     }
-    //     Command::Unpack { path, output_dir } => {
-    //         println!("Unpacking {:?} -> {:?}", path, output_dir);
-    //     }
-    // }
+    match args.command {
+        Command::Pack {
+            path,
+            output_dir,
+            archive_type,
+        } => {
+            archive::pack(path, output_dir, archive_type)?;
+        }
+        Command::Ls { path } => {
+            println!("Listing {:?}", path);
+        }
+        Command::Unpack { path, output_dir } => {
+            println!("Unpacking {:?} -> {:?}", path, output_dir);
+        }
+    }
+
+    Ok(())
 }

@@ -23,7 +23,15 @@ struct PuffImpl {}
 
 impl Pack for PuffImpl {
     fn pack<R: Read, W: Write>(file_reader: &mut R, archive_writer: &mut W) -> std::io::Result<()> {
-        todo!()
+        let mut buf = [0u8; 1024];
+        loop {
+            let n = file_reader.read(&mut buf)?;
+            if n == 0 {
+                break; // EOF
+            }
+            archive_writer.write_all(&buf[..n])?;
+        }
+        Ok(())
     }
 }
 
@@ -32,7 +40,15 @@ impl Unpack for PuffImpl {
         archive_reader: &mut R,
         file_writer: &mut W,
     ) -> std::io::Result<()> {
-        todo!()
+        let mut buf = [0u8; 1024];
+        loop {
+            let n = archive_reader.read(&mut buf)?;
+            if n == 0 {
+                break; // EOF
+            }
+            file_writer.write_all(&buf[..n])?;
+        }
+        Ok(())
     }
 }
 
@@ -82,19 +98,29 @@ impl ArchiveInfo {
                 .map(|e| e.serialized_size())
                 .sum::<usize>()
     }
+
+    pub fn serialize<W: Write>(&self, archive_writer: &mut W) -> std::io::Result<()> {
+        archive_writer.write_all(&(self.archive_type.clone() as u8).to_le_bytes())?;
+        archive_writer.write_all(&(self.entries.len() as u8).to_le_bytes())?;
+        for entry in self.entries.iter() {
+            entry.serialize(archive_writer)?;
+        }
+        return Ok(());
+    }
 }
 
+#[derive(clap::ValueEnum, Clone)]
 pub enum ArchiveEntryType {
     File,
     Directory,
 }
 
 pub struct ArchiveEntry {
-    pub relative_path: String,
+    pub entry_type: ArchiveEntryType,
     pub archive_start: u64,
     pub archive_size: u64,
     pub original_size: u64,
-    pub entry_type: ArchiveEntryType,
+    pub relative_path: String,
 }
 
 impl ArchiveEntry {
@@ -104,7 +130,18 @@ impl ArchiveEntry {
         let offsets_len = size_of::<u64>();
 
         // archive start + archive size + original_size
-        path_len + self.relative_path.len() + entry_type_len + offsets_len * 3
+        entry_type_len + offsets_len * 3 + path_len + self.relative_path.len()
+    }
+
+    pub fn serialize<W: Write>(&self, archive_writer: &mut W) -> std::io::Result<()> {
+        archive_writer.write_all(&(self.entry_type.clone() as u8).to_le_bytes())?;
+        archive_writer.write_all(&(self.archive_start as u8).to_le_bytes())?;
+        archive_writer.write_all(&(self.archive_size as u8).to_le_bytes())?;
+        archive_writer.write_all(&(self.original_size as u8).to_le_bytes())?;
+        archive_writer.write_all(&(self.relative_path.len() as u8).to_le_bytes())?;
+        archive_writer.write_all(self.relative_path.as_bytes())?;
+
+        return Ok(());
     }
 }
 
@@ -140,12 +177,6 @@ fn normalize_output_path(base: PathBuf, input: &PathBuf) -> Result<PathBuf, Arch
     }
 }
 
-fn get_temp_output_path(output: &PathBuf) -> PathBuf {
-    let mut temp_out = output.clone();
-    temp_out.push(".temp");
-    temp_out
-}
-
 pub fn pack(
     input: PathBuf,
     output: Option<PathBuf>,
@@ -155,13 +186,10 @@ pub fn pack(
         return Err(ArchiveError::InputNotFound(input));
     }
 
-    let abs_input = std::fs::canonicalize(input)?;
+    let abs_input = dunce::canonicalize(input)?;
 
     let base = resolve_output_base(&abs_input, output);
     let output = normalize_output_path(base, &abs_input)?;
-    // let temp_out = get_temp_output_path(&output);
-
-    // let mut temp_file = File::create(temp_out)?;
 
     let mut archive_info = ArchiveInfo {
         archive_type: archive_type.clone(),
@@ -205,7 +233,11 @@ pub fn pack(
         if matches!(entry.entry_type, ArchiveEntryType::Directory) {
             continue;
         }
-        let full_path = abs_input.join(entry.relative_path.clone());
+        let full_path = if entry.relative_path.is_empty() {
+            abs_input.clone()
+        } else {
+            abs_input.join(&entry.relative_path)
+        };
         let mut file = File::open(&full_path)?;
         let pre_pack_position = archive_file.stream_position()?;
         archive_type.pack(&mut file, &mut archive_file)?;
@@ -216,5 +248,8 @@ pub fn pack(
         entry.original_size = file.stream_position()?;
     }
 
-    todo!();
+    archive_file.seek(SeekFrom::Start(header_length as u64))?;
+    archive_info.serialize(&mut archive_file)?;
+
+    return Ok(());
 }
