@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use crate::archive::ArchiveError;
 
 mod archive;
-mod interface;
+
 #[derive(Parser)]
 #[command(version, about = "A custom archive tool")]
 struct Args {

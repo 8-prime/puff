@@ -49,16 +49,7 @@ impl Unpack for PuffImpl {
         archive_reader: &mut R,
         file_writer: &mut W,
     ) -> std::io::Result<()> {
-        let mut buf = [0u8; 1024];
-        let mut read = 0;
-        loop {
-            let n = archive_reader.read(&mut buf)?;
-            read += n;
-            if n == 0 || read as u64 >= entry.archive_size {
-                break; // EOF
-            }
-            file_writer.write_all(&buf[..n])?;
-        }
+        std::io::copy(&mut archive_reader.take(entry.archive_size), file_writer)?;
         Ok(())
     }
 }
