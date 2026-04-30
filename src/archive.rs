@@ -1,4 +1,6 @@
+use core::panic::PanicInfo;
 use std::{
+    convert::TryFrom,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
     path::PathBuf,
@@ -6,6 +8,8 @@ use std::{
 
 use thiserror::Error;
 use walkdir::WalkDir;
+
+const HEADER: [u8; 4] = *b"puff";
 
 #[derive(Debug, Error)]
 pub enum ArchiveError {
@@ -17,6 +21,8 @@ pub enum ArchiveError {
     Io(#[from] std::io::Error),
     #[error("Failed to compute relative path for: {0}")]
     StripPrefix(PathBuf),
+    #[error("File is not valid puff archive.")]
+    InvalidArchive,
 }
 
 struct PuffImpl {}
@@ -58,6 +64,16 @@ pub enum ArchiveType {
     Puff,
 }
 
+impl TryFrom<u8> for ArchiveType {
+    type Error = ArchiveError;
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            0 => Ok(ArchiveType::Puff),
+            _ => Err(ArchiveError::InvalidArchive),
+        }
+    }
+}
+
 impl ArchiveType {
     fn pack<R: Read, W: Write>(
         &self,
@@ -88,9 +104,10 @@ pub struct ArchiveInfo {
 
 impl ArchiveInfo {
     pub fn serialized_size(&self) -> usize {
-        let archive_type_len = size_of::<ArchiveType>();
+        let archive_type_len = size_of::<u8>();
         let entries_count_len = size_of::<u64>();
-        archive_type_len
+        HEADER.len()
+            + archive_type_len
             + entries_count_len
             + self
                 .entries
@@ -100,8 +117,9 @@ impl ArchiveInfo {
     }
 
     pub fn serialize<W: Write>(&self, archive_writer: &mut W) -> std::io::Result<()> {
+        archive_writer.write_all(&HEADER)?;
         archive_writer.write_all(&(self.archive_type.clone() as u8).to_le_bytes())?;
-        archive_writer.write_all(&(self.entries.len() as u8).to_le_bytes())?;
+        archive_writer.write_all(&(self.entries.len() as u64).to_le_bytes())?;
         for entry in self.entries.iter() {
             entry.serialize(archive_writer)?;
         }
@@ -115,6 +133,17 @@ pub enum ArchiveEntryType {
     Directory,
 }
 
+impl TryFrom<u8> for ArchiveEntryType {
+    type Error = ArchiveError;
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            0 => Ok(ArchiveEntryType::File),
+            1 => Ok(ArchiveEntryType::Directory),
+            _ => Err(ArchiveError::InvalidArchive),
+        }
+    }
+}
+
 pub struct ArchiveEntry {
     pub entry_type: ArchiveEntryType,
     pub archive_start: u64,
@@ -126,7 +155,7 @@ pub struct ArchiveEntry {
 impl ArchiveEntry {
     pub fn serialized_size(&self) -> usize {
         let path_len = size_of::<u64>();
-        let entry_type_len = size_of::<ArchiveEntryType>();
+        let entry_type_len = size_of::<u8>();
         let offsets_len = size_of::<u64>();
 
         // archive start + archive size + original_size
@@ -135,10 +164,10 @@ impl ArchiveEntry {
 
     pub fn serialize<W: Write>(&self, archive_writer: &mut W) -> std::io::Result<()> {
         archive_writer.write_all(&(self.entry_type.clone() as u8).to_le_bytes())?;
-        archive_writer.write_all(&(self.archive_start as u8).to_le_bytes())?;
-        archive_writer.write_all(&(self.archive_size as u8).to_le_bytes())?;
-        archive_writer.write_all(&(self.original_size as u8).to_le_bytes())?;
-        archive_writer.write_all(&(self.relative_path.len() as u8).to_le_bytes())?;
+        archive_writer.write_all(&self.archive_start.to_le_bytes())?;
+        archive_writer.write_all(&self.archive_size.to_le_bytes())?;
+        archive_writer.write_all(&self.original_size.to_le_bytes())?;
+        archive_writer.write_all(&(self.relative_path.len() as u64).to_le_bytes())?;
         archive_writer.write_all(self.relative_path.as_bytes())?;
 
         return Ok(());
@@ -175,6 +204,66 @@ fn normalize_output_path(base: PathBuf, input: &PathBuf) -> Result<PathBuf, Arch
     } else {
         Ok(base.with_extension("puff"))
     }
+}
+
+pub fn ls(input: PathBuf) -> Result<ArchiveInfo, ArchiveError> {
+    if !input.exists() {
+        return Err(ArchiveError::InputNotFound(input));
+    }
+
+    let abs_input = dunce::canonicalize(input)?;
+    let mut archive_file = File::open(&abs_input)?;
+
+    let mut header_bytes = [0u8; HEADER.len()];
+    let read = archive_file.read(&mut header_bytes)?;
+    if read != HEADER.len() || header_bytes != HEADER {
+        return Err(ArchiveError::InvalidArchive);
+    }
+
+    let mut u8_buf = [0u8; 1];
+    let mut u64_buf = [0u8; 8];
+
+    archive_file.read_exact(&mut u8_buf)?;
+    let archive_type = ArchiveType::try_from(u8_buf[0])?;
+
+    archive_file.read_exact(&mut u64_buf)?;
+    let entries_count = u64::from_le_bytes(u64_buf);
+
+    let mut entries = Vec::with_capacity(entries_count as usize);
+    for _ in 0..entries_count {
+        archive_file.read_exact(&mut u8_buf)?;
+        let entry_type = ArchiveEntryType::try_from(u8_buf[0])?;
+
+        archive_file.read_exact(&mut u64_buf)?;
+        let archive_start = u64::from_le_bytes(u64_buf);
+
+        archive_file.read_exact(&mut u64_buf)?;
+        let archive_size = u64::from_le_bytes(u64_buf);
+
+        archive_file.read_exact(&mut u64_buf)?;
+        let original_size = u64::from_le_bytes(u64_buf);
+
+        archive_file.read_exact(&mut u64_buf)?;
+        let path_len = u64::from_le_bytes(u64_buf);
+
+        let mut path_buf = vec![0u8; path_len as usize];
+        archive_file.read_exact(&mut path_buf)?;
+        let relative_path =
+            String::from_utf8(path_buf).map_err(|_| ArchiveError::InvalidArchive)?;
+
+        entries.push(ArchiveEntry {
+            entry_type,
+            archive_start,
+            archive_size,
+            original_size,
+            relative_path,
+        });
+    }
+
+    Ok(ArchiveInfo {
+        archive_type,
+        entries,
+    })
 }
 
 pub fn pack(
