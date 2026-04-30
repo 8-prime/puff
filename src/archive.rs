@@ -321,6 +321,15 @@ pub fn pack(
     let base = resolve_output_base(&abs_input, output);
     let output = normalize_output_path(base, &abs_input)?;
 
+    let strip_base = if abs_input.is_file() {
+        abs_input
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| abs_input.clone())
+    } else {
+        abs_input.clone()
+    };
+
     let mut archive_info = ArchiveInfo {
         archive_type: archive_type.clone(),
         entries: WalkDir::new(&abs_input)
@@ -329,7 +338,7 @@ pub fn pack(
             .map(|e| -> Result<ArchiveEntry, ArchiveError> {
                 let relative_path = e
                     .path()
-                    .strip_prefix(&abs_input)
+                    .strip_prefix(&strip_base)
                     .map_err(|_| ArchiveError::StripPrefix(e.path().to_path_buf()))?
                     .to_string_lossy()
                     .to_string();
@@ -363,11 +372,7 @@ pub fn pack(
         if matches!(entry.entry_type, ArchiveEntryType::Directory) {
             continue;
         }
-        let full_path = if entry.relative_path.is_empty() {
-            abs_input.clone()
-        } else {
-            abs_input.join(&entry.relative_path)
-        };
+        let full_path = strip_base.join(&entry.relative_path);
         let mut file = File::open(&full_path)?;
         let pre_pack_position = archive_file.stream_position()?;
         archive_type.pack(&mut file, &mut archive_file)?;
