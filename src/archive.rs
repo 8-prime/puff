@@ -1,4 +1,3 @@
-use core::panic::PanicInfo;
 use std::{
     convert::TryFrom,
     fmt,
@@ -108,11 +107,12 @@ impl fmt::Display for ArchiveInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "{}",
+            "Archive type: {}",
             match self.archive_type {
                 ArchiveType::Puff => "Puff".to_string(),
             }
         )?;
+        writeln!(f, "")?;
         for entry in &self.entries {
             writeln!(f, "{}", entry)?;
         }
@@ -187,7 +187,7 @@ impl fmt::Display for ArchiveEntry {
 
         write!(
             f,
-            "{}  {:>10} {:>10} {}",
+            "{} {:>10} {:>10} {}",
             type_char, size_str, compressed_size_str, self.relative_path
         )
     }
