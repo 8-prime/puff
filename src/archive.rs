@@ -378,7 +378,7 @@ pub fn pack(
         entry.original_size = file.stream_position()?;
     }
 
-    archive_file.seek(SeekFrom::Start(header_length as u64))?;
+    archive_file.seek(SeekFrom::Start(0))?;
     archive_info.serialize(&mut archive_file)?;
 
     return Ok(());
