@@ -8,3 +8,4 @@ clap = { version = "4.6.1", features = ["derive"] }
 thiserror = "2"
 dunce = "1"
 walkdir = "2.5.0"
+humansize = "2.0.0"

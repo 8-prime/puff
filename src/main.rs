@@ -51,7 +51,8 @@ fn main() -> Result<(), ArchiveError> {
             archive::pack(path, output_dir, archive_type)?;
         }
         Command::Ls { path } => {
-            println!("Listing {:?}", path);
+            let info = archive::ls(path)?;
+            println!("{}", info);
         }
         Command::Unpack { path, output_dir } => {
             println!("Unpacking {:?} -> {:?}", path, output_dir);

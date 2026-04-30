@@ -1,11 +1,13 @@
 use core::panic::PanicInfo;
 use std::{
     convert::TryFrom,
+    fmt,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
     path::PathBuf,
 };
 
+use humansize::{DECIMAL, format_size};
 use thiserror::Error;
 use walkdir::WalkDir;
 
@@ -102,6 +104,22 @@ pub struct ArchiveInfo {
     pub entries: Vec<ArchiveEntry>,
 }
 
+impl fmt::Display for ArchiveInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "{}",
+            match self.archive_type {
+                ArchiveType::Puff => "Puff".to_string(),
+            }
+        )?;
+        for entry in &self.entries {
+            writeln!(f, "{}", entry)?;
+        }
+        Ok(())
+    }
+}
+
 impl ArchiveInfo {
     pub fn serialized_size(&self) -> usize {
         let archive_type_len = size_of::<u8>();
@@ -150,6 +168,29 @@ pub struct ArchiveEntry {
     pub archive_size: u64,
     pub original_size: u64,
     pub relative_path: String,
+}
+
+impl fmt::Display for ArchiveEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let type_char = match self.entry_type {
+            ArchiveEntryType::File => 'F',
+            ArchiveEntryType::Directory => 'D',
+        };
+        let size_str = match self.entry_type {
+            ArchiveEntryType::File => format_size(self.original_size, DECIMAL),
+            ArchiveEntryType::Directory => "-".to_string(),
+        };
+        let compressed_size_str = match self.entry_type {
+            ArchiveEntryType::File => format_size(self.archive_size, DECIMAL),
+            ArchiveEntryType::Directory => "-".to_string(),
+        };
+
+        write!(
+            f,
+            "{}  {:>10} {:>10} {}",
+            type_char, size_str, compressed_size_str, self.relative_path
+        )
+    }
 }
 
 impl ArchiveEntry {
