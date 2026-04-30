@@ -1,5 +1,6 @@
 use std::{
     convert::TryFrom,
+    env::current_dir,
     fmt,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
@@ -44,13 +45,16 @@ impl Pack for PuffImpl {
 
 impl Unpack for PuffImpl {
     fn unpack<R: Read, W: Write>(
+        entry: &ArchiveEntry,
         archive_reader: &mut R,
         file_writer: &mut W,
     ) -> std::io::Result<()> {
         let mut buf = [0u8; 1024];
+        let mut read = 0;
         loop {
             let n = archive_reader.read(&mut buf)?;
-            if n == 0 {
+            read += n;
+            if n == 0 || read as u64 >= entry.archive_size {
                 break; // EOF
             }
             file_writer.write_all(&buf[..n])?;
@@ -85,6 +89,17 @@ impl ArchiveType {
             ArchiveType::Puff => PuffImpl::pack(file_reader, archive_writer),
         }
     }
+
+    fn unpack<R: Read, W: Write>(
+        &self,
+        entry: &ArchiveEntry,
+        archive_reader: &mut R,
+        file_writer: &mut W,
+    ) -> std::io::Result<()> {
+        match self {
+            ArchiveType::Puff => PuffImpl::unpack(&entry, archive_reader, file_writer),
+        }
+    }
 }
 
 pub trait Pack {
@@ -93,6 +108,7 @@ pub trait Pack {
 
 pub trait Unpack {
     fn unpack<R: Read, W: Write>(
+        entry: &ArchiveEntry,
         archive_reader: &mut R,
         file_writer: &mut W,
     ) -> std::io::Result<()>;
@@ -387,4 +403,31 @@ pub fn pack(
     archive_info.serialize(&mut archive_file)?;
 
     return Ok(());
+}
+
+pub fn unpack(input: PathBuf, output: Option<PathBuf>) -> Result<(), ArchiveError> {
+    if !input.exists() {
+        return Err(ArchiveError::InputNotFound(input));
+    }
+
+    let abs_input = dunce::canonicalize(input)?;
+    let abs_output = match output {
+        Some(o) => dunce::canonicalize(o)?,
+        None => dunce::canonicalize(current_dir()?)?,
+    };
+
+    let archive_info = ls(abs_input.clone())?;
+
+    let mut archive_file = File::open(&abs_input)?;
+
+    for entry in archive_info.entries {
+        let out_file_path = abs_output.join(&entry.relative_path);
+        let mut out_file = File::create(out_file_path)?;
+        archive_file.seek(SeekFrom::Start(entry.archive_start))?;
+        archive_info
+            .archive_type
+            .unpack(&entry, &mut archive_file, &mut out_file)?;
+    }
+
+    Ok(())
 }
